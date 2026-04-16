@@ -1300,10 +1300,10 @@ void main() {
     test('Requests to open a new window loads request in same window', () {
       // Reset last created delegate.
       CapturingUIDelegate.lastCreatedDelegate = CapturingUIDelegate(
-        requestMediaCapturePermission: (_, __, ___, ____, _____) async {
+        requestMediaCapturePermission: (_, _, _, _, _) async {
           return PermissionDecision.deny;
         },
-        runJavaScriptConfirmPanel: (_, __, ___, ____) async {
+        runJavaScriptConfirmPanel: (_, _, _, _) async {
           return false;
         },
       );
@@ -2046,13 +2046,13 @@ class CapturingNavigationDelegate extends WKNavigationDelegate {
   }
   static CapturingNavigationDelegate lastCreatedDelegate =
       CapturingNavigationDelegate(
-        decidePolicyForNavigationAction: (_, __, ___) async {
+        decidePolicyForNavigationAction: (_, _, _) async {
           return NavigationActionPolicy.cancel;
         },
-        decidePolicyForNavigationResponse: (_, __, ___) async {
+        decidePolicyForNavigationResponse: (_, _, _) async {
           return NavigationResponsePolicy.cancel;
         },
-        didReceiveAuthenticationChallenge: (_, __, ___) async {
+        didReceiveAuthenticationChallenge: (_, _, _) async {
           return AuthenticationChallengeResponse.pigeon_detached(
             disposition:
                 UrlSessionAuthChallengeDisposition.performDefaultHandling,
@@ -2074,10 +2074,10 @@ class CapturingUIDelegate extends WKUIDelegate {
     lastCreatedDelegate = this;
   }
   static CapturingUIDelegate lastCreatedDelegate = CapturingUIDelegate(
-    requestMediaCapturePermission: (_, __, ___, ____, _____) async {
+    requestMediaCapturePermission: (_, _, _, _, _) async {
       return PermissionDecision.deny;
     },
-    runJavaScriptConfirmPanel: (_, __, ___, ____) async {
+    runJavaScriptConfirmPanel: (_, _, _, _) async {
       return false;
     },
   );
