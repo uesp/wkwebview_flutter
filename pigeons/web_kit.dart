@@ -669,6 +669,53 @@ abstract class UIScrollView extends UIView {
   void setShowsHorizontalScrollIndicator(bool value);
 }
 
+/// A view that allows scrolling of its contained views on macOS.
+///
+/// See https://developer.apple.com/documentation/appkit/nsscrollview.
+@ProxyApi(
+  swiftOptions: SwiftProxyApiOptions(import: 'AppKit', supportsIos: false),
+)
+abstract class NSScrollView extends NSObject {
+  /// The point at which the origin of the content view is offset from the
+  /// origin of the scroll view.
+  List<double> getContentOffset();
+
+  /// Move the scrolled position of your view.
+  void scrollBy(double x, double y);
+
+  /// The point at which the origin of the content view is offset from the
+  /// origin of the scroll view.
+  void setContentOffset(double x, double y);
+
+  /// The delegate of the scroll view.
+  void setDelegate(FWFNSScrollViewDelegate? delegate);
+
+  /// Whether the scroll view bounces past the edge of content and back again.
+  void setBounces(bool value);
+
+  /// Whether the scroll view bounces when it reaches the ends of its horizontal
+  /// axis.
+  void setBouncesHorizontally(bool value);
+
+  /// Whether the scroll view bounces when it reaches the ends of its vertical
+  /// axis.
+  void setBouncesVertically(bool value);
+
+  /// Whether bouncing always occurs when vertical scrolling reaches the end of
+  /// the content.
+  void setAlwaysBounceVertical(bool value);
+
+  /// Whether bouncing always occurs when horizontal scrolling reaches the end
+  /// of the content view.
+  void setAlwaysBounceHorizontal(bool value);
+
+  /// Whether the vertical scroll indicator is visible.
+  void setShowsVerticalScrollIndicator(bool value);
+
+  /// Whether the horizontal scroll indicator is visible.
+  void setShowsHorizontalScrollIndicator(bool value);
+}
+
 /// A collection of properties that you use to initialize a web view..
 ///
 /// See https://developer.apple.com/documentation/webkit/wkwebviewconfiguration.
@@ -962,6 +1009,10 @@ abstract class NSViewWKWebView extends NSObject implements WKWebView {
   @attached
   late WKWebViewConfiguration configuration;
 
+  /// The scroll view associated with the web view.
+  @attached
+  late NSScrollView scrollView;
+
   /// The object you use to integrate custom user interface elements, such as
   /// contextual menus or panels, into web view interactions.
   void setUIDelegate(WKUIDelegate delegate);
@@ -1117,6 +1168,19 @@ abstract class UIScrollViewDelegate extends NSObject {
   /// Note that this is a convenient method that includes the `contentOffset` of
   /// the `scrollView`.
   void Function(UIScrollView scrollView, double x, double y)?
+  scrollViewDidScroll;
+}
+
+/// The interface for the delegate of a macOS scroll view.
+///
+/// Named [FWFNSScrollViewDelegate] to avoid clashing with AppKit type names.
+@ProxyApi(swiftOptions: SwiftProxyApiOptions(supportsIos: false))
+abstract class FWFNSScrollViewDelegate extends NSObject {
+  FWFNSScrollViewDelegate();
+
+  /// Tells the delegate when the user scrolls the content view within the
+  /// scroll view.
+  void Function(NSScrollView scrollView, double x, double y)?
   scrollViewDidScroll;
 }
 

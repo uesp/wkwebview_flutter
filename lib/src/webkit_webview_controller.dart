@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
+import 'common/platform_scroll_view.dart';
 import 'common/platform_webview.dart';
 import 'common/weak_reference_utils.dart';
 import 'common/web_kit.g.dart';
@@ -331,6 +332,14 @@ class WebKitWebViewController extends PlatformWebViewController {
               final progress = change[KeyValueChangeKey.newValue]! as double;
               progressCallback((progress * 100).round());
             }
+            if (defaultTargetPlatform == TargetPlatform.macOS &&
+                controller._onScrollPositionChangeCallback != null) {
+              final double progress =
+                  change[KeyValueChangeKey.newValue]! as double;
+              if (progress >= 1.0) {
+                await controller._reattachMacScrollPositionListener();
+              }
+            }
           case 'URL':
             final UrlChangeCallback? urlChangeCallback =
                 controller._currentNavigationDelegate?._onUrlChange;
@@ -350,7 +359,119 @@ class WebKitWebViewController extends PlatformWebViewController {
 
   late final WKUIDelegate _uiDelegate;
 
-  late final UIScrollViewDelegate? _uiScrollViewDelegate;
+  UIScrollViewDelegate? _uiScrollViewDelegate;
+  FWFNSScrollViewDelegate? _nsScrollViewDelegate;
+
+  /// macOS [WKWebView] often has no [NSScrollView]; use document JS scrolling instead.
+  bool? _macNativeScrollUnavailable;
+
+  static const String _macScrollPositionChannelName = 'fwfMacScrollPosition';
+
+  bool _macScrollPositionChannelRegistered = false;
+
+  bool _macScrollPositionListenerUsesJavaScript = false;
+
+  Future<PlatformScrollView?> _tryMacPlatformScrollView() async {
+    if (defaultTargetPlatform != TargetPlatform.macOS) {
+      return _webView.scrollView;
+    }
+    if (_macNativeScrollUnavailable == true) {
+      return null;
+    }
+    try {
+      return await _webView.ensureScrollView();
+    } on PlatformException catch (exception) {
+      if (exception.code == 'scroll-view-not-found') {
+        _macNativeScrollUnavailable = true;
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<PlatformScrollView> _platformScrollView() async {
+    final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+    if (scrollView != null) {
+      return scrollView;
+    }
+    throw PlatformException(
+      code: 'scroll-view-not-found',
+      message: 'Could not find NSScrollView for WKWebView on macOS.',
+    );
+  }
+
+  Future<Offset> _getScrollPositionViaJavaScript() async {
+    final Object result = await runJavaScriptReturningResult(
+      '(function(){return [window.scrollX||document.documentElement.scrollLeft||0,'
+      'window.scrollY||document.documentElement.scrollTop||0];})()',
+    );
+    if (result is List<Object?> && result.length >= 2) {
+      return Offset(
+        (result[0] as num).toDouble(),
+        (result[1] as num).toDouble(),
+      );
+    }
+    if (result is String) {
+      final List<Object?> decoded = jsonDecode(result) as List<Object?>;
+      return Offset(
+        (decoded[0] as num).toDouble(),
+        (decoded[1] as num).toDouble(),
+      );
+    }
+    throw StateError('Unexpected scroll position result: $result');
+  }
+
+  Future<void> _injectMacScrollPositionListener() async {
+    // Use webkit.messageHandlers directly — the window.* alias from
+    // addJavaScriptChannel is only injected atDocumentStart on the next load.
+    await runJavaScript(
+      "(function(){var key='__fwfMacScrollListener';var prev=window[key];"
+      "if(prev&&prev.remove){prev.remove();}"
+      "var handlers=window.webkit&&window.webkit.messageHandlers;"
+      "if(!handlers||!handlers['$_macScrollPositionChannelName']){return;}"
+      "var channel=handlers['$_macScrollPositionChannelName'];"
+      "if(!channel||!channel.postMessage){return;}"
+      "function report(){var x=window.scrollX||document.documentElement.scrollLeft||0;"
+      "var y=window.scrollY||document.documentElement.scrollTop||0;"
+      "channel.postMessage(String(x)+','+String(y));}"
+      "window.addEventListener('scroll',report,{passive:true});report();"
+      "window[key]={remove:function(){window.removeEventListener('scroll',report);}};})();",
+    );
+  }
+
+  Future<void> _enableMacJavaScriptScrollPositionListener() async {
+    if (!_macScrollPositionChannelRegistered) {
+      await addJavaScriptChannel(
+        WebKitJavaScriptChannelParams(
+          name: _macScrollPositionChannelName,
+          onMessageReceived: (JavaScriptMessage message) {
+            final List<String> parts = message.message.split(',');
+            if (parts.length < 2) {
+              return;
+            }
+            _onScrollPositionChangeCallback?.call(
+              ScrollPositionChange(
+                double.parse(parts[0]),
+                double.parse(parts[1]),
+              ),
+            );
+          },
+        ),
+      );
+      _macScrollPositionChannelRegistered = true;
+    }
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        await _injectMacScrollPositionListener();
+        return;
+      } on PlatformException catch (exception) {
+        if (exception.code != 'FWFEvaluateJavaScriptError' || attempt == 4) {
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  }
 
   final Map<String, WebKitJavaScriptChannelParams> _javaScriptChannelParams =
       <String, WebKitJavaScriptChannelParams>{};
@@ -590,41 +711,72 @@ class WebKitWebViewController extends PlatformWebViewController {
   Future<String?> getTitle() => _webView.getTitle();
 
   @override
-  Future<void> scrollTo(int x, int y) {
-    // TODO(stuartmorgan): Investigate doing this via on macOS with JS instead.
-    return _webView.scrollView.setContentOffset(x.toDouble(), y.toDouble());
+  Future<void> scrollTo(int x, int y) async {
+    final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+    if (scrollView != null) {
+      return scrollView.setContentOffset(x.toDouble(), y.toDouble());
+    }
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      await runJavaScript('window.scrollTo($x, $y);');
+      return;
+    }
+    final PlatformScrollView platformScrollView = await _platformScrollView();
+    return platformScrollView.setContentOffset(x.toDouble(), y.toDouble());
   }
 
   @override
   Future<void> scrollBy(int x, int y) async {
-    // TODO(stuartmorgan): Investigate doing this via on macOS with JS instead.
-    return _webView.scrollView.scrollBy(x.toDouble(), y.toDouble());
+    final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+    if (scrollView != null) {
+      return scrollView.scrollBy(x.toDouble(), y.toDouble());
+    }
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      await runJavaScript('window.scrollBy($x, $y);');
+      return;
+    }
+    final PlatformScrollView platformScrollView = await _platformScrollView();
+    return platformScrollView.scrollBy(x.toDouble(), y.toDouble());
   }
 
   @override
   Future<Offset> getScrollPosition() async {
-    // TODO(stuartmorgan): Investigate doing this via on macOS with JS instead.
-    final List<double> position = await _webView.scrollView.getContentOffset();
+    final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+    if (scrollView != null) {
+      final List<double> position = await scrollView.getContentOffset();
+      return Offset(position[0], position[1]);
+    }
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      return _getScrollPositionViaJavaScript();
+    }
+    final PlatformScrollView platformScrollView = await _platformScrollView();
+    final List<double> position = await platformScrollView.getContentOffset();
     return Offset(position[0], position[1]);
   }
 
   @override
-  Future<void> setVerticalScrollBarEnabled(bool enabled) {
-    return _webView.scrollView.setShowsVerticalScrollIndicator(enabled);
+  Future<void> setVerticalScrollBarEnabled(bool enabled) async {
+    final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+    if (scrollView == null) {
+      return;
+    }
+    return scrollView.setShowsVerticalScrollIndicator(enabled);
   }
 
   @override
-  Future<void> setHorizontalScrollBarEnabled(bool enabled) {
-    return _webView.scrollView.setShowsHorizontalScrollIndicator(enabled);
+  Future<void> setHorizontalScrollBarEnabled(bool enabled) async {
+    final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+    if (scrollView == null) {
+      return;
+    }
+    return scrollView.setShowsHorizontalScrollIndicator(enabled);
   }
 
   @override
   bool supportsSetScrollBarsEnabled() {
     switch (defaultTargetPlatform) {
       case TargetPlatform.iOS:
-        return true;
       case TargetPlatform.macOS:
-        return false;
+        return true;
       case _:
         throw UnsupportedError(
           'This plugin does not support this platform: $defaultTargetPlatform',
@@ -634,8 +786,19 @@ class WebKitWebViewController extends PlatformWebViewController {
 
   @override
   Future<void> setBackgroundColor(Color color) {
+    final String hexColor = _colorToCssHex(color);
+    final Future<void> documentStyle = runJavaScript(
+      "if(document.body){document.body.style.backgroundColor='$hexColor';}",
+    );
+
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      // macOS has no UIView setBackgroundColor/setOpaque on WKWebView.
+      return documentStyle;
+    }
+
     const Color transparent = Colors.transparent;
     return Future.wait(<Future<void>>[
+      documentStyle,
       _webView.setOpaque(false),
       _webView.setBackgroundColor(
         UIColor(
@@ -650,6 +813,10 @@ class WebKitWebViewController extends PlatformWebViewController {
         UIColor(red: color.r, green: color.g, blue: color.b, alpha: color.a),
       ),
     ]);
+  }
+
+  static String _colorToCssHex(Color color) {
+    return '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
   }
 
   @override
@@ -778,20 +945,24 @@ class WebKitWebViewController extends PlatformWebViewController {
   }
 
   @override
-  Future<void> setOverScrollMode(WebViewOverScrollMode mode) {
+  Future<void> setOverScrollMode(WebViewOverScrollMode mode) async {
+    final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+    if (scrollView == null) {
+      return;
+    }
     return switch (mode) {
       WebViewOverScrollMode.always => Future.wait<void>(<Future<void>>[
-        _webView.scrollView.setBounces(true),
-        _webView.scrollView.setAlwaysBounceHorizontal(true),
-        _webView.scrollView.setAlwaysBounceVertical(true),
+        scrollView.setBounces(true),
+        scrollView.setAlwaysBounceHorizontal(true),
+        scrollView.setAlwaysBounceVertical(true),
       ]),
       WebViewOverScrollMode.ifContentScrolls =>
         Future.wait<void>(<Future<void>>[
-          _webView.scrollView.setBounces(true),
-          _webView.scrollView.setAlwaysBounceHorizontal(false),
-          _webView.scrollView.setAlwaysBounceVertical(false),
+          scrollView.setBounces(true),
+          scrollView.setAlwaysBounceHorizontal(false),
+          scrollView.setAlwaysBounceVertical(false),
         ]),
-      WebViewOverScrollMode.never => _webView.scrollView.setBounces(false),
+      WebViewOverScrollMode.never => scrollView.setBounces(false),
       // This prevents future additions from causing a breaking change.
       // ignore: unreachable_switch_case
       _ => throw UnsupportedError('This platform does not support $mode.'),
@@ -810,9 +981,9 @@ class WebKitWebViewController extends PlatformWebViewController {
     void Function(ScrollPositionChange scrollPositionChange)?
     onScrollPositionChange,
   ) {
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      _onScrollPositionChangeCallback = onScrollPositionChange;
+    _onScrollPositionChangeCallback = onScrollPositionChange;
 
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
       if (onScrollPositionChange != null) {
         final weakThis = WeakReference<WebKitWebViewController>(this);
         _uiScrollViewDelegate = UIScrollViewDelegate(
@@ -822,17 +993,75 @@ class WebKitWebViewController extends PlatformWebViewController {
             );
           },
         );
-        return _webView.scrollView.setDelegate(_uiScrollViewDelegate);
+        return _webView.scrollView.setUiDelegate(_uiScrollViewDelegate);
       } else {
         _uiScrollViewDelegate = null;
-        return _webView.scrollView.setDelegate(null);
+        return _webView.scrollView.setUiDelegate(null);
       }
+    } else if (defaultTargetPlatform == TargetPlatform.macOS) {
+      return _setMacOnScrollPositionChange(onScrollPositionChange);
     } else {
-      // TODO(stuartmorgan): Investigate doing this via JS instead.
       throw UnimplementedError(
-        'setOnScrollPositionChange is not implemented on macOS',
+        'setOnScrollPositionChange is not implemented on the current platform',
       );
     }
+  }
+
+  Future<void> _setMacOnScrollPositionChange(
+    void Function(ScrollPositionChange scrollPositionChange)?
+    onScrollPositionChange,
+  ) async {
+    if (onScrollPositionChange == null) {
+      _nsScrollViewDelegate = null;
+      try {
+        final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+        if (scrollView != null) {
+          await scrollView.setNsDelegate(null);
+        }
+      } on Object {
+        // Scroll view may not exist yet; nothing to detach.
+      }
+      return;
+    }
+
+    final WeakReference<WebKitWebViewController> weakThis =
+        WeakReference<WebKitWebViewController>(this);
+    _nsScrollViewDelegate = FWFNSScrollViewDelegate(
+      scrollViewDidScroll: (_, _, double x, double y) {
+        weakThis.target?._onScrollPositionChangeCallback?.call(
+          ScrollPositionChange(x, y),
+        );
+      },
+    );
+
+    for (var attempt = 0; attempt < 40; attempt++) {
+      final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+      if (scrollView == null) {
+        break;
+      }
+      try {
+        await scrollView.setNsDelegate(_nsScrollViewDelegate);
+        return;
+      } on Object {
+        // Retry while the web view hierarchy is still building.
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+
+    _nsScrollViewDelegate = null;
+    _macScrollPositionListenerUsesJavaScript = true;
+    await _enableMacJavaScriptScrollPositionListener();
+  }
+
+  Future<void> _reattachMacScrollPositionListener() async {
+    if (_onScrollPositionChangeCallback == null) {
+      return;
+    }
+    if (_macScrollPositionListenerUsesJavaScript) {
+      await _enableMacJavaScriptScrollPositionListener();
+      return;
+    }
+    await _setMacOnScrollPositionChange(_onScrollPositionChangeCallback);
   }
 
   @override

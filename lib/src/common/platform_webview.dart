@@ -4,6 +4,7 @@
 
 import 'package:flutter/foundation.dart';
 
+import 'platform_scroll_view.dart';
 import 'web_kit.g.dart';
 
 /// Platform agnostic native WebView.
@@ -296,17 +297,35 @@ class PlatformWebView {
     throw UnimplementedError('${webView.runtimeType} is not supported.');
   }
 
-  /// The scroll view associated with the web view.
-  UIScrollView get scrollView {
-    final WKWebView webView = nativeWebView;
-    switch (webView) {
-      case UIViewWKWebView():
-        return webView.scrollView;
-      case NSViewWKWebView():
-        throw UnimplementedError('scrollView is not implemented on macOS');
-    }
+  PlatformScrollView? _platformScrollViewCache;
 
-    throw UnimplementedError('${webView.runtimeType} is not supported.');
+  /// Ensures the native scroll view is linked before use (required on macOS).
+  Future<PlatformScrollView> ensureScrollView() async {
+    if (_platformScrollViewCache != null) {
+      return _platformScrollViewCache!;
+    }
+    final WKWebView webView = nativeWebView;
+    if (webView is NSViewWKWebView) {
+      await webView.ensureNativeScrollViewLinked();
+    }
+    _platformScrollViewCache = PlatformScrollView.from(webView);
+    return _platformScrollViewCache!;
+  }
+
+  /// The scroll view associated with the web view.
+  ///
+  /// On macOS, prefer [ensureScrollView]; this getter only works after linking.
+  PlatformScrollView get scrollView {
+    if (_platformScrollViewCache != null) {
+      return _platformScrollViewCache!;
+    }
+    if (nativeWebView is NSViewWKWebView) {
+      throw StateError(
+        'Call ensureScrollView() on macOS before using scrollView.',
+      );
+    }
+    _platformScrollViewCache = PlatformScrollView.from(nativeWebView);
+    return _platformScrollViewCache!;
   }
 
   /// A Boolean value that indicates whether horizontal swipe gestures trigger

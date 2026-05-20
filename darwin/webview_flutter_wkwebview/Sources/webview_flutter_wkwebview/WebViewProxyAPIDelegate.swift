@@ -3,10 +3,79 @@
 // found in the LICENSE file.
 
 import WebKit
+#if os(macOS)
+  import AppKit
+#endif
+
+#if os(macOS)
+  extension WKWebView {
+    /// Returns the embedded `NSScrollView` (not exposed on macOS `WKWebView` like iOS).
+    ///
+    /// Do not use KVC for `"scrollView"` — that key is iOS-only and throws on macOS.
+    func fwfNSScrollView() throws -> NSScrollView {
+      if let webViewImpl = self as? WebViewImpl,
+        let cached = webViewImpl.fwfCachedMacScrollView
+      {
+        return cached
+      }
+      let scrollViewSelector = Selector(("scrollView"))
+      if responds(to: scrollViewSelector),
+        let unmanaged = perform(scrollViewSelector),
+        let scrollView = unmanaged.takeUnretainedValue() as? NSScrollView
+      {
+        (self as? WebViewImpl)?.fwfCachedMacScrollView = scrollView
+        return scrollView
+      }
+      if let scrollView = fwfFindInnermostNSScrollView(in: self) {
+        (self as? WebViewImpl)?.fwfCachedMacScrollView = scrollView
+        return scrollView
+      }
+      if let scrollView = fwfFindEnclosingScrollView(in: self) {
+        (self as? WebViewImpl)?.fwfCachedMacScrollView = scrollView
+        return scrollView
+      }
+      throw PigeonError(
+        code: "scroll-view-not-found",
+        message: "Could not find NSScrollView for WKWebView on macOS.",
+        details: nil)
+    }
+
+    /// Prefer the deepest `NSScrollView` in the hierarchy (WebKit's content scroller).
+    private func fwfFindInnermostNSScrollView(in view: NSView) -> NSScrollView? {
+      var innermost: NSScrollView?
+      func visit(_ current: NSView) {
+        if let scrollView = current as? NSScrollView {
+          innermost = scrollView
+        }
+        for subview in current.subviews {
+          visit(subview)
+        }
+      }
+      visit(view)
+      return innermost
+    }
+
+    private func fwfFindEnclosingScrollView(in view: NSView) -> NSScrollView? {
+      if let scrollView = view.enclosingScrollView {
+        return scrollView
+      }
+      for subview in view.subviews {
+        if let scrollView = fwfFindEnclosingScrollView(in: subview) {
+          return scrollView
+        }
+      }
+      return nil
+    }
+  }
+#endif
 
 class WebViewImpl: WKWebView {
   let api: PigeonApiProtocolWKWebView
   unowned let registrar: ProxyAPIRegistrar
+
+  #if os(macOS)
+    weak var fwfCachedMacScrollView: NSScrollView?
+  #endif
 
   init(
     api: PigeonApiProtocolWKWebView, registrar: ProxyAPIRegistrar, frame: CGRect,
@@ -74,6 +143,14 @@ class WebViewProxyAPIDelegate: PigeonApiDelegateWKWebView, PigeonApiDelegateUIVi
       -> UIScrollView
     {
       return pigeonInstance.scrollView
+    }
+  #endif
+
+  #if os(macOS)
+    func scrollView(pigeonApi: PigeonApiNSViewWKWebView, pigeonInstance: WKWebView) throws
+      -> NSScrollView
+    {
+      return try pigeonInstance.fwfNSScrollView()
     }
   #endif
 

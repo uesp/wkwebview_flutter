@@ -178,6 +178,12 @@ class ProxyAPIDelegate: WebKitLibraryPigeonProxyApiDelegate {
     return PigeonApiUIScrollView(pigeonRegistrar: registrar, delegate: ScrollViewProxyAPIDelegate())
   }
 
+  func pigeonApiNSScrollView(_ registrar: WebKitLibraryPigeonProxyApiRegistrar)
+    -> PigeonApiNSScrollView
+  {
+    return PigeonApiNSScrollView(pigeonRegistrar: registrar, delegate: ScrollViewProxyAPIDelegate())
+  }
+
   func pigeonApiWKWebViewConfiguration(_ registrar: WebKitLibraryPigeonProxyApiRegistrar)
     -> PigeonApiWKWebViewConfiguration
   {
@@ -250,6 +256,13 @@ class ProxyAPIDelegate: WebKitLibraryPigeonProxyApiDelegate {
     -> PigeonApiUIScrollViewDelegate
   {
     return PigeonApiUIScrollViewDelegate(
+      pigeonRegistrar: registrar, delegate: ScrollViewDelegateProxyAPIDelegate())
+  }
+
+  func pigeonApiFWFNSScrollViewDelegate(_ registrar: WebKitLibraryPigeonProxyApiRegistrar)
+    -> PigeonApiFWFNSScrollViewDelegate
+  {
+    return PigeonApiFWFNSScrollViewDelegate(
       pigeonRegistrar: registrar, delegate: ScrollViewDelegateProxyAPIDelegate())
   }
 

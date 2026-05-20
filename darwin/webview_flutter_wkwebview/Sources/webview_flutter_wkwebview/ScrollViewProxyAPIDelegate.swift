@@ -4,13 +4,19 @@
 
 #if os(iOS)
   import UIKit
+#elseif os(macOS)
+  import AppKit
 #endif
 
-/// ProxyApi implementation for `UIScrollView`.
+#if os(macOS)
+  private var macScrollDelegates: [ObjectIdentifier: FWFNSScrollViewDelegateImpl] = [:]
+#endif
+
+/// ProxyApi implementation for `UIScrollView` and `NSScrollView`.
 ///
 /// This class may handle instantiating native object instances that are attached to a Dart instance
 /// or handle method calls on the associated native class or an instance of that class.
-class ScrollViewProxyAPIDelegate: PigeonApiDelegateUIScrollView {
+class ScrollViewProxyAPIDelegate: PigeonApiDelegateUIScrollView, PigeonApiDelegateNSScrollView {
   #if os(iOS)
     func getContentOffset(pigeonApi: PigeonApiUIScrollView, pigeonInstance: UIScrollView) throws
       -> [Double]
@@ -99,6 +105,90 @@ class ScrollViewProxyAPIDelegate: PigeonApiDelegateUIScrollView {
       pigeonApi: PigeonApiUIScrollView, pigeonInstance: UIScrollView, value: Bool
     ) throws {
       pigeonInstance.showsHorizontalScrollIndicator = value
+    }
+  #endif
+
+  #if os(macOS)
+    func getContentOffset(pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView) throws
+      -> [Double]
+    {
+      let origin = pigeonInstance.contentView.bounds.origin
+      return [origin.x, origin.y]
+    }
+
+    func scrollBy(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, x: Double, y: Double
+    ) throws {
+      let clipView = pigeonInstance.contentView
+      var origin = clipView.bounds.origin
+      origin.x += CGFloat(x)
+      origin.y += CGFloat(y)
+      clipView.scroll(to: origin)
+      pigeonInstance.reflectScrolledClipView(clipView)
+    }
+
+    func setContentOffset(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, x: Double, y: Double
+    ) throws {
+      let clipView = pigeonInstance.contentView
+      clipView.scroll(to: NSPoint(x: x, y: y))
+      pigeonInstance.reflectScrolledClipView(clipView)
+    }
+
+    func setDelegate(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView,
+      delegate: FWFNSScrollViewDelegate?
+    ) throws {
+      let scrollViewId = ObjectIdentifier(pigeonInstance)
+      macScrollDelegates[scrollViewId]?.detach()
+      macScrollDelegates.removeValue(forKey: scrollViewId)
+      guard let impl = delegate as? FWFNSScrollViewDelegateImpl else { return }
+      macScrollDelegates[scrollViewId] = impl
+      impl.attach(to: pigeonInstance)
+    }
+
+    func setBounces(pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, value: Bool)
+      throws
+    {
+      let elasticity: NSScrollView.Elasticity = value ? .allowed : .none
+      pigeonInstance.verticalScrollElasticity = elasticity
+      pigeonInstance.horizontalScrollElasticity = elasticity
+    }
+
+    func setBouncesHorizontally(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, value: Bool
+    ) throws {
+      pigeonInstance.horizontalScrollElasticity = value ? .allowed : .none
+    }
+
+    func setBouncesVertically(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, value: Bool
+    ) throws {
+      pigeonInstance.verticalScrollElasticity = value ? .allowed : .none
+    }
+
+    func setAlwaysBounceVertical(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, value: Bool
+    ) throws {
+      pigeonInstance.verticalScrollElasticity = value ? .allowed : .automatic
+    }
+
+    func setAlwaysBounceHorizontal(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, value: Bool
+    ) throws {
+      pigeonInstance.horizontalScrollElasticity = value ? .allowed : .automatic
+    }
+
+    func setShowsVerticalScrollIndicator(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, value: Bool
+    ) throws {
+      pigeonInstance.hasVerticalScroller = value
+    }
+
+    func setShowsHorizontalScrollIndicator(
+      pigeonApi: PigeonApiNSScrollView, pigeonInstance: NSScrollView, value: Bool
+    ) throws {
+      pigeonInstance.hasHorizontalScroller = value
     }
   #endif
 }
