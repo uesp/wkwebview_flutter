@@ -96,7 +96,7 @@
     },
     {
       "name": "test_api",
-      "version": "0.7.10",
+      "version": "0.7.11",
       "dependencies": [
         "async",
         "boolean_selector",
@@ -125,7 +125,7 @@
     },
     {
       "name": "meta",
-      "version": "1.17.0",
+      "version": "1.18.0",
       "dependencies": []
     },
     {
@@ -370,34 +370,6 @@
       ]
     },
     {
-      "name": "hooks",
-      "version": "1.0.2",
-      "dependencies": [
-        "collection",
-        "crypto",
-        "logging",
-        "meta",
-        "pub_semver",
-        "yaml"
-      ]
-    },
-    {
-      "name": "yaml",
-      "version": "3.1.3",
-      "dependencies": [
-        "collection",
-        "source_span",
-        "string_scanner"
-      ]
-    },
-    {
-      "name": "crypto",
-      "version": "3.0.7",
-      "dependencies": [
-        "typed_data"
-      ]
-    },
-    {
       "name": "glob",
       "version": "2.1.3",
       "dependencies": [
@@ -414,6 +386,44 @@
       "dependencies": [
         "meta",
         "path"
+      ]
+    },
+    {
+      "name": "hooks",
+      "version": "1.0.3",
+      "dependencies": [
+        "collection",
+        "crypto",
+        "logging",
+        "meta",
+        "pub_semver",
+        "record_use",
+        "yaml"
+      ]
+    },
+    {
+      "name": "yaml",
+      "version": "3.1.3",
+      "dependencies": [
+        "collection",
+        "source_span",
+        "string_scanner"
+      ]
+    },
+    {
+      "name": "record_use",
+      "version": "0.6.0",
+      "dependencies": [
+        "collection",
+        "meta",
+        "pub_semver"
+      ]
+    },
+    {
+      "name": "crypto",
+      "version": "3.0.7",
+      "dependencies": [
+        "typed_data"
       ]
     },
     {
@@ -438,7 +448,7 @@
     },
     {
       "name": "vm_service",
-      "version": "15.1.0",
+      "version": "15.2.0",
       "dependencies": []
     },
     {
