@@ -3,6 +3,11 @@
 // found in the LICENSE file.
 
 import WebKit
+#if os(iOS)
+  import UIKit
+#elseif os(macOS)
+  import AppKit
+#endif
 
 /// Implementation of `WKUIDelegate` that calls to Dart in callback methods.
 class UIDelegateImpl: NSObject, WKUIDelegate {
@@ -30,6 +35,48 @@ class UIDelegateImpl: NSObject, WKUIDelegate {
     }
     return nil
   }
+
+  #if os(iOS)
+    @available(iOS 13.0, *)
+    func webView(
+      _ webView: WKWebView,
+      contextMenuConfigurationForElement elementInfo: WKContextMenuElementInfo,
+      completionHandler: @escaping (UIContextMenuConfiguration?) -> Void
+    ) {
+      if elementInfo.linkURL != nil {
+        completionHandler(nil)
+        return
+      }
+      completionHandler(
+        UIContextMenuConfiguration(
+          identifier: nil, previewProvider: nil,
+          actionProvider: { elements in
+            UIMenu(title: "", children: elements)
+          }))
+    }
+  #elseif os(macOS)
+    @available(macOS 10.15, *)
+    func webView(
+      _ webView: WKWebView,
+      contextMenuConfigurationForElement elementInfo: WKContextMenuElementInfo,
+      completionHandler: @escaping (NSContextMenuConfiguration?) -> Void
+    ) {
+      if elementInfo.linkURL != nil {
+        completionHandler(nil)
+        return
+      }
+      completionHandler(
+        NSContextMenuConfiguration(
+          identifier: nil, previewProvider: nil,
+          actionProvider: { items in
+            let menu = NSMenu()
+            for item in items {
+              menu.addItem(item)
+            }
+            return menu
+          }))
+    }
+  #endif
 
   #if compiler(>=6.0)
     @available(iOS 15.0, macOS 12.0, *)
