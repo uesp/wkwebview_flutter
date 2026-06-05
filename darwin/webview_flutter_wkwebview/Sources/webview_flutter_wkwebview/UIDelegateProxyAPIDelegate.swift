@@ -5,8 +5,6 @@
 import WebKit
 #if os(iOS)
   import UIKit
-#elseif os(macOS)
-  import AppKit
 #endif
 
 /// Implementation of `WKUIDelegate` that calls to Dart in callback methods.
@@ -52,28 +50,6 @@ class UIDelegateImpl: NSObject, WKUIDelegate {
           identifier: nil, previewProvider: nil,
           actionProvider: { elements in
             UIMenu(title: "", children: elements)
-          }))
-    }
-  #elseif os(macOS)
-    @available(macOS 10.15, *)
-    func webView(
-      _ webView: WKWebView,
-      contextMenuConfigurationForElement elementInfo: WKContextMenuElementInfo,
-      completionHandler: @escaping (NSContextMenuConfiguration?) -> Void
-    ) {
-      if elementInfo.linkURL != nil {
-        completionHandler(nil)
-        return
-      }
-      completionHandler(
-        NSContextMenuConfiguration(
-          identifier: nil, previewProvider: nil,
-          actionProvider: { items in
-            let menu = NSMenu()
-            for item in items {
-              menu.addItem(item)
-            }
-            return menu
           }))
     }
   #endif
