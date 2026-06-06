@@ -371,6 +371,13 @@ class WebKitWebViewController extends PlatformWebViewController {
 
   bool _macScrollPositionListenerUsesJavaScript = false;
 
+  Future<PlatformScrollView?> _probeMacPlatformScrollView() async {
+    if (defaultTargetPlatform != TargetPlatform.macOS) {
+      return _webView.scrollView;
+    }
+    return _webView.tryEnsureScrollView();
+  }
+
   Future<PlatformScrollView?> _tryMacPlatformScrollView() async {
     if (defaultTargetPlatform != TargetPlatform.macOS) {
       return _webView.scrollView;
@@ -378,15 +385,11 @@ class WebKitWebViewController extends PlatformWebViewController {
     if (_macNativeScrollUnavailable == true) {
       return null;
     }
-    try {
-      return await _webView.ensureScrollView();
-    } on PlatformException catch (exception) {
-      if (exception.code == 'scroll-view-not-found') {
-        _macNativeScrollUnavailable = true;
-        return null;
-      }
-      rethrow;
+    final PlatformScrollView? scrollView = await _probeMacPlatformScrollView();
+    if (scrollView == null) {
+      _macNativeScrollUnavailable = true;
     }
+    return scrollView;
   }
 
   Future<PlatformScrollView> _platformScrollView() async {
@@ -394,9 +397,8 @@ class WebKitWebViewController extends PlatformWebViewController {
     if (scrollView != null) {
       return scrollView;
     }
-    throw PlatformException(
-      code: 'scroll-view-not-found',
-      message: 'Could not find NSScrollView for WKWebView on macOS.',
+    throw StateError(
+      'Could not find NSScrollView for WKWebView on macOS.',
     );
   }
 
@@ -1035,7 +1037,7 @@ class WebKitWebViewController extends PlatformWebViewController {
     );
 
     for (var attempt = 0; attempt < 40; attempt++) {
-      final PlatformScrollView? scrollView = await _tryMacPlatformScrollView();
+      final PlatformScrollView? scrollView = await _probeMacPlatformScrollView();
       if (scrollView == null) {
         break;
       }
@@ -1049,6 +1051,7 @@ class WebKitWebViewController extends PlatformWebViewController {
     }
 
     _nsScrollViewDelegate = null;
+    _macNativeScrollUnavailable = true;
     _macScrollPositionListenerUsesJavaScript = true;
     await _enableMacJavaScriptScrollPositionListener();
   }

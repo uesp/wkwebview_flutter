@@ -301,15 +301,29 @@ class PlatformWebView {
 
   /// Ensures the native scroll view is linked before use (required on macOS).
   Future<PlatformScrollView> ensureScrollView() async {
+    final PlatformScrollView? scrollView = await tryEnsureScrollView();
+    if (scrollView == null) {
+      throw StateError(
+        'Could not find NSScrollView for WKWebView on macOS.',
+      );
+    }
+    return scrollView;
+  }
+
+  /// Links the native scroll view when present; otherwise returns null (macOS).
+  Future<PlatformScrollView?> tryEnsureScrollView() async {
     if (_platformScrollViewCache != null) {
-      return _platformScrollViewCache!;
+      return _platformScrollViewCache;
     }
     final WKWebView webView = nativeWebView;
     if (webView is NSViewWKWebView) {
       await webView.ensureNativeScrollViewLinked();
+      if (!webView.isNativeScrollViewLinked) {
+        return null;
+      }
     }
     _platformScrollViewCache = PlatformScrollView.from(webView);
-    return _platformScrollViewCache!;
+    return _platformScrollViewCache;
   }
 
   /// The scroll view associated with the web view.

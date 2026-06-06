@@ -6154,8 +6154,19 @@ class NSViewWKWebView extends NSObject implements WKWebView {
     return linked;
   }
 
+  /// Pigeon error code when macOS [WKWebView] has no linkable [NSScrollView].
+  static const SCROLL_VIEW_NOT_FOUND = 'scroll-view-not-found';
+
+  /// Whether [ensureNativeScrollViewLinked] linked a native scroll view.
+  bool get isNativeScrollViewLinked => _linkedNativeScrollView != null;
+
   /// Links this Dart [NSScrollView] proxy to the native scroll view in [WKWebView].
+  ///
+  /// Completes without error when no scroll view exists (common on macOS).
   Future<void> ensureNativeScrollViewLinked() {
+    if (_linkedNativeScrollView != null) {
+      return Future<void>.value();
+    }
     _linkNativeScrollViewFuture ??= _linkNativeScrollView();
     return _linkNativeScrollViewFuture!;
   }
@@ -6187,6 +6198,13 @@ class NSViewWKWebView extends NSObject implements WKWebView {
     final List<Object?>? pigeonVar_replyList =
         await pigeonVar_sendFuture as List<Object?>?;
 
+    if (pigeonVar_replyList != null && pigeonVar_replyList.length > 1) {
+      final String code = pigeonVar_replyList[0]! as String;
+      if (code == SCROLL_VIEW_NOT_FOUND) {
+        _linkNativeScrollViewFuture = null;
+        return;
+      }
+    }
     _extractReplyValueOrThrow(
       pigeonVar_replyList,
       pigeonVar_channelName,
