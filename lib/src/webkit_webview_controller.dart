@@ -71,6 +71,57 @@ base class WebKitLoadFileParams extends LoadFileParams {
   final String readAccessPath;
 }
 
+/// Lifecycle phase for a macOS scroll-wheel gesture.
+enum MacScrollWheelPhase {
+  /// The scroll-wheel gesture began.
+  start,
+
+  /// The scroll-wheel gesture changed.
+  update,
+
+  /// The scroll-wheel gesture ended.
+  end,
+
+  /// The scroll-wheel gesture was cancelled.
+  cancel,
+}
+
+/// Native macOS scroll-wheel event forwarded from AppKit.
+@immutable
+class MacScrollWheelEvent {
+  /// Constructs a [MacScrollWheelEvent].
+  const MacScrollWheelEvent({
+    required this.eventType,
+    required this.timestamp,
+    required this.globalPosition,
+    required this.localPosition,
+    required this.delta,
+    required this.isMomentum,
+    required this.hasPreciseDeltas,
+  });
+
+  /// Lifecycle phase of the scroll-wheel gesture.
+  final MacScrollWheelPhase eventType;
+
+  /// Native [NSEvent.timestamp].
+  final double timestamp;
+
+  /// Global position in screen coordinates.
+  final Offset globalPosition;
+
+  /// Local position relative to the scroll view.
+  final Offset localPosition;
+
+  /// Scroll delta.
+  final Offset delta;
+
+  /// Whether the event is part of a momentum scroll.
+  final bool isMomentum;
+
+  /// Whether [delta] uses precise scrolling deltas.
+  final bool hasPreciseDeltas;
+}
+
 /// Object specifying creation parameters for a [WebKitWebViewController].
 @immutable
 class WebKitWebViewControllerCreationParams
@@ -361,6 +412,7 @@ class WebKitWebViewController extends PlatformWebViewController {
 
   UIScrollViewDelegate? _uiScrollViewDelegate;
   FWFNSScrollViewDelegate? _nsScrollViewDelegate;
+  FWFNSScrollViewDelegate? _nsScrollWheelDelegate;
 
   /// macOS [WKWebView] often has no [NSScrollView]; use document JS scrolling instead.
   bool? _macNativeScrollUnavailable;
@@ -494,6 +546,8 @@ class WebKitWebViewController extends PlatformWebViewController {
 
   void Function(ScrollPositionChange scrollPositionChange)?
   _onScrollPositionChangeCallback;
+
+  void Function(MacScrollWheelEvent event)? _onMacScrollWheelCallback;
 
   WebKitWebViewControllerCreationParams get _webKitParams =>
       params as WebKitWebViewControllerCreationParams;
@@ -1064,7 +1118,85 @@ class WebKitWebViewController extends PlatformWebViewController {
       await _enableMacJavaScriptScrollPositionListener();
       return;
     }
+    _webView.clearMacScrollViewCache();
     await _setMacOnScrollPositionChange(_onScrollPositionChangeCallback);
+  }
+
+  /// Sets a listener for native macOS scroll-wheel events.
+  ///
+  /// The `NSEvent` monitor is scoped to the web view itself, since macOS
+  /// `WKWebView` exposes no `NSScrollView`.
+  Future<void> setOnMacScrollWheel(
+    void Function(MacScrollWheelEvent event)? callback, {
+    bool consume = false,
+  }) {
+    _onMacScrollWheelCallback = callback;
+    if (defaultTargetPlatform != TargetPlatform.macOS) {
+      throw UnimplementedError(
+        'setOnMacScrollWheel is only implemented on macOS',
+      );
+    }
+    return _setMacOnScrollWheel(callback, consume: consume);
+  }
+
+  MacScrollWheelPhase _toMacScrollWheelPhase(FWFNSScrollWheelPhase phase) {
+    return switch (phase) {
+      FWFNSScrollWheelPhase.start => MacScrollWheelPhase.start,
+      FWFNSScrollWheelPhase.update => MacScrollWheelPhase.update,
+      FWFNSScrollWheelPhase.end => MacScrollWheelPhase.end,
+      FWFNSScrollWheelPhase.cancel => MacScrollWheelPhase.cancel,
+    };
+  }
+
+  Future<void> _setMacOnScrollWheel(
+    void Function(MacScrollWheelEvent event)? callback, {
+    required bool consume,
+  }) async {
+    if (callback == null) {
+      _nsScrollWheelDelegate = null;
+      await _webView.setMacScrollWheelDelegate(null, consume: false);
+      return;
+    }
+
+    final WeakReference<WebKitWebViewController> weakThis =
+        WeakReference<WebKitWebViewController>(this);
+    _nsScrollWheelDelegate = FWFNSScrollViewDelegate(
+      scrollWheel: (
+        _,
+        _,
+        FWFNSScrollWheelPhase eventType,
+        double timestamp,
+        double globalX,
+        double globalY,
+        double localX,
+        double localY,
+        double deltaX,
+        double deltaY,
+        bool isMomentum,
+        bool hasPreciseDeltas,
+      ) {
+        final controller = weakThis.target;
+        if (controller == null) {
+          return;
+        }
+        controller._onMacScrollWheelCallback?.call(
+          MacScrollWheelEvent(
+            eventType: controller._toMacScrollWheelPhase(eventType),
+            timestamp: timestamp,
+            globalPosition: Offset(globalX, globalY),
+            localPosition: Offset(localX, localY),
+            delta: Offset(deltaX, deltaY),
+            isMomentum: isMomentum,
+            hasPreciseDeltas: hasPreciseDeltas,
+          ),
+        );
+      },
+    );
+
+    await _webView.setMacScrollWheelDelegate(
+      _nsScrollWheelDelegate,
+      consume: consume,
+    );
   }
 
   @override

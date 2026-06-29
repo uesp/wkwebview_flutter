@@ -23,6 +23,11 @@ class PlatformScrollView {
 		throw UnimplementedError('${webView.runtimeType} is not supported.');
 	}
 
+	/// Creates a [PlatformScrollView] from a linked macOS [NSScrollView].
+	factory PlatformScrollView.fromLinkedMacScrollView(NSScrollView scrollView) {
+		return PlatformScrollView._(null, scrollView);
+	}
+
 	Future<List<double>> getContentOffset() {
 		if (_uiScrollView != null) {
 			return _uiScrollView.getContentOffset();

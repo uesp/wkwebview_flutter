@@ -5,6 +5,10 @@
 import WebKit
 #if os(macOS)
   import AppKit
+
+  /// Scroll-wheel monitors keyed by the `WKWebView` they observe.
+  private var macWebViewScrollWheelDelegates:
+    [ObjectIdentifier: FWFNSScrollViewDelegateImpl] = [:]
 #endif
 
 #if os(macOS)
@@ -151,6 +155,38 @@ class WebViewProxyAPIDelegate: PigeonApiDelegateWKWebView, PigeonApiDelegateUIVi
       -> NSScrollView
     {
       return try pigeonInstance.fwfNSScrollView()
+    }
+
+    func linkScrollViewByIdentifier(
+      pigeonApi: PigeonApiNSViewWKWebView,
+      pigeonInstance: WKWebView,
+      scrollViewIdentifier: Int64,
+      completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+      do {
+        let nativeScrollView = try pigeonInstance.fwfNSScrollView()
+        pigeonApi.pigeonRegistrar.instanceManager.addDartCreatedInstance(
+          nativeScrollView,
+          withIdentifier: scrollViewIdentifier
+        )
+        completion(.success(()))
+      } catch {
+        completion(.failure(error))
+      }
+    }
+
+    func setScrollWheelDelegate(
+      pigeonApi: PigeonApiNSViewWKWebView,
+      pigeonInstance: WKWebView,
+      delegate: FWFNSScrollViewDelegate?,
+      consume: Bool
+    ) throws {
+      let viewId = ObjectIdentifier(pigeonInstance)
+      macWebViewScrollWheelDelegates[viewId]?.detachScrollWheel()
+      macWebViewScrollWheelDelegates.removeValue(forKey: viewId)
+      guard let impl = delegate as? FWFNSScrollViewDelegateImpl else { return }
+      macWebViewScrollWheelDelegates[viewId] = impl
+      impl.attachScrollWheel(to: pigeonInstance, consume: consume)
     }
   #endif
 

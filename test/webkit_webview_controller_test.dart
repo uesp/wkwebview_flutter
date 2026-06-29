@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
+import 'package:webview_flutter_wkwebview/src/common/ns_view_wk_webview_scroll.dart';
 import 'package:webview_flutter_wkwebview/src/common/web_kit.g.dart';
 import 'package:webview_flutter_wkwebview/src/common/webkit_constants.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
@@ -20,6 +21,8 @@ import 'webkit_webview_controller_test.mocks.dart';
 @GenerateNiceMocks(<MockSpec<Object>>[
   MockSpec<UIScrollView>(),
   MockSpec<UIScrollViewDelegate>(),
+  MockSpec<NSScrollView>(),
+  MockSpec<NSViewWKWebView>(),
   MockSpec<URL>(),
   MockSpec<URLRequest>(),
   MockSpec<WKPreferences>(),
@@ -1988,6 +1991,241 @@ window.addEventListener("error", function(e) {
 
       debugDefaultTargetPlatformOverride = null;
     });
+
+    WebKitWebViewController createMacControllerWithMocks({
+      MockNSScrollView? mockScrollView,
+      FWFNSScrollViewDelegate? scrollWheelDelegate,
+      void Function(
+        void Function(
+          NSObject,
+          String? keyPath,
+          NSObject? object,
+          Map<KeyValueChangeKey, Object?>? change,
+        ) observeValue,
+      )? onObserveValueCaptured,
+      void Function(MockNSViewWKWebView webView)? onWebViewCreated,
+    }) {
+      final MockWKWebViewConfiguration nonNullMockWebViewConfiguration =
+          MockWKWebViewConfiguration();
+      late final MockNSViewWKWebView nonNullMockWebView;
+
+      PigeonOverrides.wKWebViewConfiguration_new =
+          ({dynamic observeValue}) => nonNullMockWebViewConfiguration;
+      PigeonOverrides.nSViewWKWebView_new =
+          ({
+            required WKWebViewConfiguration initialConfiguration,
+            void Function(
+              NSObject,
+              String?,
+              NSObject?,
+              Map<KeyValueChangeKey, Object?>?,
+            )? observeValue,
+          }) {
+            if (observeValue != null) {
+              onObserveValueCaptured?.call(observeValue);
+            }
+            nonNullMockWebView = MockNSViewWKWebView();
+            final NSScrollView macScrollView =
+                mockScrollView ?? MockNSScrollView();
+            linkMacScrollViewForTesting(nonNullMockWebView, macScrollView);
+            onWebViewCreated?.call(nonNullMockWebView);
+            return nonNullMockWebView;
+          };
+      PigeonOverrides.fWFNSScrollViewDelegate_new =
+          ({
+            void Function(
+              FWFNSScrollViewDelegate,
+              NSScrollView,
+              double,
+              double,
+            )? scrollViewDidScroll,
+            void Function(
+              FWFNSScrollViewDelegate,
+              NSScrollView?,
+              FWFNSScrollWheelPhase,
+              double,
+              double,
+              double,
+              double,
+              double,
+              double,
+              double,
+              bool,
+              bool,
+            )? scrollWheel,
+            dynamic observeValue,
+          }) {
+            return scrollWheelDelegate ??
+                CapturingFWFNSScrollViewDelegate(scrollWheel: scrollWheel);
+          };
+      PigeonOverrides.wKUIDelegate_new =
+          ({
+            dynamic onCreateWebView,
+            required Future<PermissionDecision> Function(
+              WKUIDelegate,
+              WKWebView,
+              WKSecurityOrigin,
+              WKFrameInfo,
+              MediaCaptureType,
+            ) requestMediaCapturePermission,
+            dynamic runJavaScriptAlertPanel,
+            required Future<bool> Function(
+              WKUIDelegate,
+              WKWebView,
+              String,
+              WKFrameInfo,
+            ) runJavaScriptConfirmPanel,
+            dynamic runJavaScriptTextInputPanel,
+            dynamic observeValue,
+          }) {
+            return CapturingUIDelegate(
+              requestMediaCapturePermission: requestMediaCapturePermission,
+              runJavaScriptConfirmPanel: runJavaScriptConfirmPanel,
+            );
+          };
+
+      final controller = WebKitWebViewController(
+        WebKitWebViewControllerCreationParams(),
+      );
+
+      when(
+        nonNullMockWebView.configuration,
+      ).thenReturn(nonNullMockWebViewConfiguration);
+      when(nonNullMockWebViewConfiguration.getPreferences()).thenAnswer(
+        (_) => Future<MockWKPreferences>.value(MockWKPreferences()),
+      );
+      when(
+        nonNullMockWebViewConfiguration.getDefaultWebpagePreferences(),
+      ).thenAnswer((_) async => MockWKWebpagePreferences());
+      when(
+        nonNullMockWebViewConfiguration.getUserContentController(),
+      ).thenAnswer(
+        (_) => Future<MockWKUserContentController>.value(
+          MockWKUserContentController(),
+        ),
+      );
+      when(nonNullMockWebViewConfiguration.getWebsiteDataStore()).thenAnswer(
+        (_) => Future<MockWKWebsiteDataStore>.value(MockWKWebsiteDataStore()),
+      );
+
+      return controller;
+    }
+
+    test('setOnMacScrollWheel throws on non-macOS', () async {
+      final WebKitWebViewController controller = createControllerWithMocks();
+
+      expect(
+        () => controller.setOnMacScrollWheel((_) {}),
+        throwsA(isA<UnimplementedError>()),
+      );
+    });
+
+    test('setOnMacScrollWheel attaches, forwards, and detaches', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+
+      late final MockNSViewWKWebView mockWebView;
+      final WebKitWebViewController controller = createMacControllerWithMocks(
+        onWebViewCreated: (webView) {
+          mockWebView = webView;
+        },
+      );
+
+      final eventCompleter = Completer<MacScrollWheelEvent>();
+      await controller.setOnMacScrollWheel(eventCompleter.complete);
+
+      verify(
+        mockWebView.setScrollWheelDelegate(any, false),
+      ).called(1);
+
+      final void Function(
+        FWFNSScrollViewDelegate,
+        NSScrollView?,
+        FWFNSScrollWheelPhase,
+        double,
+        double,
+        double,
+        double,
+        double,
+        double,
+        double,
+        bool,
+        bool,
+      ) onScrollWheel = CapturingFWFNSScrollViewDelegate
+          .lastCreatedDelegate
+          .scrollWheel!;
+
+      onScrollWheel(
+        CapturingFWFNSScrollViewDelegate.lastCreatedDelegate,
+        null,
+        FWFNSScrollWheelPhase.start,
+        1.5,
+        10,
+        20,
+        3,
+        4,
+        0.5,
+        -1.2,
+        false,
+        true,
+      );
+
+      final MacScrollWheelEvent event = await eventCompleter.future;
+      expect(event.eventType, MacScrollWheelPhase.start);
+      expect(event.timestamp, 1.5);
+      expect(event.globalPosition, const Offset(10, 20));
+      expect(event.localPosition, const Offset(3, 4));
+      expect(event.delta, const Offset(0.5, -1.2));
+      expect(event.isMomentum, false);
+      expect(event.hasPreciseDeltas, true);
+
+      await controller.setOnMacScrollWheel(null);
+
+      verify(
+        mockWebView.setScrollWheelDelegate(null, false),
+      ).called(1);
+
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('setOnMacScrollWheel native monitor survives navigation', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+
+      late final void Function(
+        NSObject,
+        String? keyPath,
+        NSObject? object,
+        Map<KeyValueChangeKey, Object>? change,
+      ) webViewObserveValue;
+      late final MockNSViewWKWebView mockWebView;
+
+      final WebKitWebViewController controller = createMacControllerWithMocks(
+        onObserveValueCaptured: (observeValue) {
+          webViewObserveValue = observeValue;
+        },
+        onWebViewCreated: (webView) {
+          mockWebView = webView;
+        },
+      );
+
+      await controller.setOnMacScrollWheel((_) {});
+
+      webViewObserveValue(
+        mockWebView,
+        'estimatedProgress',
+        mockWebView,
+        <KeyValueChangeKey, Object>{KeyValueChangeKey.newValue: 1.0},
+      );
+
+      await Future<void>.delayed(Duration.zero);
+
+      // The native monitor is scoped to the persistent web view, so it attaches
+      // exactly once and is not reattached on navigation progress.
+      verify(
+        mockWebView.setScrollWheelDelegate(any, false),
+      ).called(1);
+
+      debugDefaultTargetPlatformOverride = null;
+    });
   });
 
   group('WebKitJavaScriptChannelParams', () {
@@ -2091,4 +2329,17 @@ class CapturingUIScrollViewDelegate extends UIScrollViewDelegate {
 
   static CapturingUIScrollViewDelegate lastCreatedDelegate =
       CapturingUIScrollViewDelegate();
+}
+
+class CapturingFWFNSScrollViewDelegate extends FWFNSScrollViewDelegate {
+  CapturingFWFNSScrollViewDelegate({
+    super.scrollViewDidScroll,
+    super.scrollWheel,
+    super.observeValue,
+  }) : super.pigeon_detached() {
+    lastCreatedDelegate = this;
+  }
+
+  static CapturingFWFNSScrollViewDelegate lastCreatedDelegate =
+      CapturingFWFNSScrollViewDelegate();
 }

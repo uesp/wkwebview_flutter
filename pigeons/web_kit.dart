@@ -1013,6 +1013,17 @@ abstract class NSViewWKWebView extends NSObject implements WKWebView {
   @attached
   late NSScrollView scrollView;
 
+  /// Links the Dart-created scroll view [scrollViewIdentifier] to the native
+  /// scroll view when present.
+  @async
+  void linkScrollViewByIdentifier(int scrollViewIdentifier);
+
+  /// Installs a scroll-wheel delegate that receives native wheel events.
+  ///
+  /// macOS `WKWebView` has no `NSScrollView`, so the delegate's `NSEvent`
+  /// monitor is scoped to the web view itself.
+  void setScrollWheelDelegate(FWFNSScrollViewDelegate? delegate, bool consume);
+
   /// The object you use to integrate custom user interface elements, such as
   /// contextual menus or panels, into web view interactions.
   void setUIDelegate(WKUIDelegate delegate);
@@ -1171,6 +1182,21 @@ abstract class UIScrollViewDelegate extends NSObject {
   scrollViewDidScroll;
 }
 
+/// Lifecycle phase for a macOS scroll-wheel gesture.
+enum FWFNSScrollWheelPhase {
+  /// The scroll-wheel gesture began.
+  start,
+
+  /// The scroll-wheel gesture changed.
+  update,
+
+  /// The scroll-wheel gesture ended.
+  end,
+
+  /// The scroll-wheel gesture was cancelled.
+  cancel,
+}
+
 /// The interface for the delegate of a macOS scroll view.
 ///
 /// Named [FWFNSScrollViewDelegate] to avoid clashing with AppKit type names.
@@ -1182,6 +1208,24 @@ abstract class FWFNSScrollViewDelegate extends NSObject {
   /// scroll view.
   void Function(NSScrollView scrollView, double x, double y)?
   scrollViewDidScroll;
+
+  /// Tells the delegate when a native scroll-wheel event occurs.
+  ///
+  /// [scrollView] is null when the monitor is attached directly to a web view.
+  void Function(
+    NSScrollView? scrollView,
+    FWFNSScrollWheelPhase eventType,
+    double timestamp,
+    double globalX,
+    double globalY,
+    double localX,
+    double localY,
+    double deltaX,
+    double deltaY,
+    bool isMomentum,
+    bool hasPreciseDeltas,
+  )?
+  scrollWheel;
 }
 
 /// An authentication credential consisting of information specific to the type

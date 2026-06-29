@@ -275,6 +275,20 @@ class PigeonOverrides {
       double x,
       double y,
     )? scrollViewDidScroll,
+    void Function(
+      FWFNSScrollViewDelegate pigeon_instance,
+      NSScrollView? scrollView,
+      FWFNSScrollWheelPhase eventType,
+      double timestamp,
+      double globalX,
+      double globalY,
+      double localX,
+      double localY,
+      double deltaX,
+      double deltaY,
+      bool isMomentum,
+      bool hasPreciseDeltas,
+    )? scrollWheel,
   })? fWFNSScrollViewDelegate_new;
 
   /// Overrides [URLCredential.withUser].
@@ -1051,6 +1065,18 @@ enum DartSecTrustResultType {
   unknown,
 }
 
+/// Lifecycle phase for a macOS scroll-wheel gesture.
+enum FWFNSScrollWheelPhase {
+  /// The scroll-wheel gesture began.
+  start,
+  /// The scroll-wheel gesture changed.
+  update,
+  /// The scroll-wheel gesture ended.
+  end,
+  /// The scroll-wheel gesture was cancelled.
+  cancel,
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -1103,6 +1129,9 @@ class _PigeonCodec extends StandardMessageCodec {
       writeValue(buffer, value.index);
     }    else if (value is DartSecTrustResultType) {
       buffer.putUint8(143);
+      writeValue(buffer, value.index);
+    }    else if (value is FWFNSScrollWheelPhase) {
+      buffer.putUint8(144);
       writeValue(buffer, value.index);
     } else {
       super.writeValue(buffer, value);
@@ -1157,6 +1186,9 @@ class _PigeonCodec extends StandardMessageCodec {
       case 143:
         final value = readValue(buffer) as int?;
         return value == null ? null : DartSecTrustResultType.values[value];
+      case 144:
+        final value = readValue(buffer) as int?;
+        return value == null ? null : FWFNSScrollWheelPhase.values[value];
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -6139,79 +6171,7 @@ class NSViewWKWebView extends NSObject implements WKWebView {
   late final WKWebViewConfiguration configuration = pigeonVar_configuration();
 
   /// The scroll view associated with the web view.
-  ///
-  /// On macOS, call [ensureNativeScrollViewLinked] before use; linking is async.
-  NSScrollView? _linkedNativeScrollView;
-  Future<void>? _linkNativeScrollViewFuture;
-
-  NSScrollView get scrollView {
-    final NSScrollView? linked = _linkedNativeScrollView;
-    if (linked == null) {
-      throw StateError(
-        'Call ensureNativeScrollViewLinked() before accessing scrollView.',
-      );
-    }
-    return linked;
-  }
-
-  /// Pigeon error code when macOS [WKWebView] has no linkable [NSScrollView].
-  static const SCROLL_VIEW_NOT_FOUND = 'scroll-view-not-found';
-
-  /// Whether [ensureNativeScrollViewLinked] linked a native scroll view.
-  bool get isNativeScrollViewLinked => _linkedNativeScrollView != null;
-
-  /// Links this Dart [NSScrollView] proxy to the native scroll view in [WKWebView].
-  ///
-  /// Completes without error when no scroll view exists (common on macOS).
-  Future<void> ensureNativeScrollViewLinked() {
-    if (_linkedNativeScrollView != null) {
-      return Future<void>.value();
-    }
-    _linkNativeScrollViewFuture ??= _linkNativeScrollView();
-    return _linkNativeScrollViewFuture!;
-  }
-
-  Future<void> _linkNativeScrollView() async {
-    if (_linkedNativeScrollView != null) {
-      return;
-    }
-    final NSScrollView pigeonVar_instance = NSScrollView.pigeon_detached(
-      pigeon_binaryMessenger: pigeon_binaryMessenger,
-      pigeon_instanceManager: pigeon_instanceManager,
-    );
-    final _PigeonInternalProxyApiBaseCodec pigeonChannelCodec =
-        _pigeonVar_codecNSViewWKWebView;
-    final BinaryMessenger? pigeonVar_binaryMessenger = pigeon_binaryMessenger;
-    final int pigeonVar_instanceIdentifier =
-        pigeon_instanceManager.addDartCreatedInstance(pigeonVar_instance);
-    const pigeonVar_channelName =
-        'dev.flutter.pigeon.webview_flutter_wkwebview.NSViewWKWebView.scrollView';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
-      pigeonVar_channelName,
-      pigeonChannelCodec,
-      binaryMessenger: pigeonVar_binaryMessenger,
-    );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
-      <Object?>[this, pigeonVar_instanceIdentifier],
-    );
-    final List<Object?>? pigeonVar_replyList =
-        await pigeonVar_sendFuture as List<Object?>?;
-
-    if (pigeonVar_replyList != null && pigeonVar_replyList.length > 1) {
-      final String code = pigeonVar_replyList[0]! as String;
-      if (code == SCROLL_VIEW_NOT_FOUND) {
-        _linkNativeScrollViewFuture = null;
-        return;
-      }
-    }
-    _extractReplyValueOrThrow(
-      pigeonVar_replyList,
-      pigeonVar_channelName,
-      isNullValid: true,
-    );
-    _linkedNativeScrollView = pigeonVar_instance;
-  }
+  late final NSScrollView scrollView = pigeonVar_scrollView();
 
   static void pigeon_setUpMessageHandlers({
     bool pigeon_clearHandlers = false,
@@ -6317,6 +6277,59 @@ class NSViewWKWebView extends NSObject implements WKWebView {
       );
     }();
     return pigeonVar_instance;
+  }
+
+  /// Links the Dart-created scroll view [scrollViewIdentifier] to the native
+  /// scroll view when present.
+  Future<void> linkScrollViewByIdentifier(int scrollViewIdentifier) async {
+    final _PigeonInternalProxyApiBaseCodec pigeonChannelCodec =
+        _pigeonVar_codecNSViewWKWebView;
+    final BinaryMessenger? pigeonVar_binaryMessenger = pigeon_binaryMessenger;
+    const pigeonVar_channelName =
+        'dev.flutter.pigeon.webview_flutter_wkwebview.NSViewWKWebView.linkScrollViewByIdentifier';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture =
+        pigeonVar_channel.send(<Object?>[this, scrollViewIdentifier]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  /// Installs a scroll-wheel delegate that receives native wheel events.
+  ///
+  /// macOS `WKWebView` has no `NSScrollView`, so the delegate's `NSEvent`
+  /// monitor is scoped to the web view itself.
+  Future<void> setScrollWheelDelegate(
+    FWFNSScrollViewDelegate? delegate,
+    bool consume,
+  ) async {
+    final _PigeonInternalProxyApiBaseCodec pigeonChannelCodec =
+        _pigeonVar_codecNSViewWKWebView;
+    final BinaryMessenger? pigeonVar_binaryMessenger = pigeon_binaryMessenger;
+    const pigeonVar_channelName =
+        'dev.flutter.pigeon.webview_flutter_wkwebview.NSViewWKWebView.setScrollWheelDelegate';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture =
+        pigeonVar_channel.send(<Object?>[this, delegate, consume]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 
   /// The object you use to integrate custom user interface elements, such as
@@ -7666,11 +7679,26 @@ class FWFNSScrollViewDelegate extends NSObject {
       double x,
       double y,
     )? scrollViewDidScroll,
+    void Function(
+      FWFNSScrollViewDelegate pigeon_instance,
+      NSScrollView? scrollView,
+      FWFNSScrollWheelPhase eventType,
+      double timestamp,
+      double globalX,
+      double globalY,
+      double localX,
+      double localY,
+      double deltaX,
+      double deltaY,
+      bool isMomentum,
+      bool hasPreciseDeltas,
+    )? scrollWheel,
   }) {
     if (PigeonOverrides.fWFNSScrollViewDelegate_new != null) {
       return PigeonOverrides.fWFNSScrollViewDelegate_new!(
         observeValue: observeValue,
         scrollViewDidScroll: scrollViewDidScroll,
+        scrollWheel: scrollWheel,
       );
     }
     return FWFNSScrollViewDelegate.pigeon_new(
@@ -7678,6 +7706,7 @@ class FWFNSScrollViewDelegate extends NSObject {
       pigeon_instanceManager: pigeon_instanceManager,
       observeValue: observeValue,
       scrollViewDidScroll: scrollViewDidScroll,
+      scrollWheel: scrollWheel,
     );
   }
 
@@ -7687,6 +7716,7 @@ class FWFNSScrollViewDelegate extends NSObject {
     super.pigeon_instanceManager,
     super.observeValue,
     this.scrollViewDidScroll,
+    this.scrollWheel,
   }) : super.pigeon_detached() {
     final int pigeonVar_instanceIdentifier =
         pigeon_instanceManager.addDartCreatedInstance(this);
@@ -7723,6 +7753,7 @@ class FWFNSScrollViewDelegate extends NSObject {
     super.pigeon_instanceManager,
     super.observeValue,
     this.scrollViewDidScroll,
+    this.scrollWheel,
   }) : super.pigeon_detached();
 
   late final _PigeonInternalProxyApiBaseCodec
@@ -7756,6 +7787,42 @@ class FWFNSScrollViewDelegate extends NSObject {
     double y,
   )? scrollViewDidScroll;
 
+  /// Tells the delegate when a native scroll-wheel event occurs.
+  ///
+  /// [scrollView] is null when the monitor is attached directly to a web view.
+  ///
+  /// For the associated Native object to be automatically garbage collected,
+  /// it is required that the implementation of this `Function` doesn't have a
+  /// strong reference to the encapsulating class instance. When this `Function`
+  /// references a non-local variable, it is strongly recommended to access it
+  /// with a `WeakReference`:
+  ///
+  /// ```dart
+  /// final WeakReference weakMyVariable = WeakReference(myVariable);
+  /// final FWFNSScrollViewDelegate instance = FWFNSScrollViewDelegate(
+  ///  scrollWheel: (FWFNSScrollViewDelegate pigeon_instance, ...) {
+  ///    print(weakMyVariable?.target);
+  ///  },
+  /// );
+  /// ```
+  ///
+  /// Alternatively, [PigeonInstanceManager.removeWeakReference] can be used to
+  /// release the associated Native object manually.
+  final void Function(
+    FWFNSScrollViewDelegate pigeon_instance,
+    NSScrollView? scrollView,
+    FWFNSScrollWheelPhase eventType,
+    double timestamp,
+    double globalX,
+    double globalY,
+    double localX,
+    double localY,
+    double deltaX,
+    double deltaY,
+    bool isMomentum,
+    bool hasPreciseDeltas,
+  )? scrollWheel;
+
   static void pigeon_setUpMessageHandlers({
     bool pigeon_clearHandlers = false,
     BinaryMessenger? pigeon_binaryMessenger,
@@ -7767,6 +7834,20 @@ class FWFNSScrollViewDelegate extends NSObject {
       double x,
       double y,
     )? scrollViewDidScroll,
+    void Function(
+      FWFNSScrollViewDelegate pigeon_instance,
+      NSScrollView? scrollView,
+      FWFNSScrollWheelPhase eventType,
+      double timestamp,
+      double globalX,
+      double globalY,
+      double localX,
+      double localY,
+      double deltaX,
+      double deltaY,
+      bool isMomentum,
+      bool hasPreciseDeltas,
+    )? scrollWheel,
   }) {
     final _PigeonInternalProxyApiBaseCodec pigeonChannelCodec =
         _PigeonInternalProxyApiBaseCodec(
@@ -7832,6 +7913,55 @@ class FWFNSScrollViewDelegate extends NSObject {
         });
       }
     }
+
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.webview_flutter_wkwebview.FWFNSScrollViewDelegate.scrollWheel',
+          pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (pigeon_clearHandlers) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final FWFNSScrollViewDelegate arg_pigeon_instance =
+              args[0]! as FWFNSScrollViewDelegate;
+          final NSScrollView? arg_scrollView = args[1] as NSScrollView?;
+          final FWFNSScrollWheelPhase arg_eventType =
+              args[2]! as FWFNSScrollWheelPhase;
+          final double arg_timestamp = args[3]! as double;
+          final double arg_globalX = args[4]! as double;
+          final double arg_globalY = args[5]! as double;
+          final double arg_localX = args[6]! as double;
+          final double arg_localY = args[7]! as double;
+          final double arg_deltaX = args[8]! as double;
+          final double arg_deltaY = args[9]! as double;
+          final bool arg_isMomentum = args[10]! as bool;
+          final bool arg_hasPreciseDeltas = args[11]! as bool;
+          try {
+            (scrollWheel ?? arg_pigeon_instance.scrollWheel)?.call(
+                arg_pigeon_instance,
+                arg_scrollView,
+                arg_eventType,
+                arg_timestamp,
+                arg_globalX,
+                arg_globalY,
+                arg_localX,
+                arg_localY,
+                arg_deltaX,
+                arg_deltaY,
+                arg_isMomentum,
+                arg_hasPreciseDeltas);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+                error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
   }
 
   @override
@@ -7841,6 +7971,7 @@ class FWFNSScrollViewDelegate extends NSObject {
       pigeon_instanceManager: pigeon_instanceManager,
       observeValue: observeValue,
       scrollViewDidScroll: scrollViewDidScroll,
+      scrollWheel: scrollWheel,
     );
   }
 }

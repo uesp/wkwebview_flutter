@@ -631,7 +631,7 @@ private class WebKitLibraryPigeonInternalProxyApiCodecReaderWriter: FlutterStand
     }
 
     override func writeValue(_ value: Any) {
-      if value is [Any] || value is Bool || value is Data || value is [AnyHashable: Any] || value is Double || value is FlutterStandardTypedData || value is Int64 || value is String || value is KeyValueObservingOptions || value is KeyValueChange || value is KeyValueChangeKey || value is UserScriptInjectionTime || value is AudiovisualMediaType || value is WebsiteDataType || value is NavigationActionPolicy || value is NavigationResponsePolicy || value is HttpCookiePropertyKey || value is NavigationType || value is PermissionDecision || value is MediaCaptureType || value is UrlSessionAuthChallengeDisposition || value is UrlCredentialPersistence || value is DartSecTrustResultType {
+      if value is [Any] || value is Bool || value is Data || value is [AnyHashable: Any] || value is Double || value is FlutterStandardTypedData || value is Int64 || value is String || value is KeyValueObservingOptions || value is KeyValueChange || value is KeyValueChangeKey || value is UserScriptInjectionTime || value is AudiovisualMediaType || value is WebsiteDataType || value is NavigationActionPolicy || value is NavigationResponsePolicy || value is HttpCookiePropertyKey || value is NavigationType || value is PermissionDecision || value is MediaCaptureType || value is UrlSessionAuthChallengeDisposition || value is UrlCredentialPersistence || value is DartSecTrustResultType || value is FWFNSScrollWheelPhase {
         super.writeValue(value)
         return
       }
@@ -1371,6 +1371,18 @@ enum DartSecTrustResultType: Int {
   case unknown = 8
 }
 
+/// Lifecycle phase for a macOS scroll-wheel gesture.
+enum FWFNSScrollWheelPhase: Int {
+  /// The scroll-wheel gesture began.
+  case start = 0
+  /// The scroll-wheel gesture changed.
+  case update = 1
+  /// The scroll-wheel gesture ended.
+  case end = 2
+  /// The scroll-wheel gesture was cancelled.
+  case cancel = 3
+}
+
 private class WebKitLibraryPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -1464,6 +1476,12 @@ private class WebKitLibraryPigeonCodecReader: FlutterStandardReader {
         return DartSecTrustResultType(rawValue: enumResultAsInt)
       }
       return nil
+    case 144:
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return FWFNSScrollWheelPhase(rawValue: enumResultAsInt)
+      }
+      return nil
     default:
       return super.readValue(ofType: type)
     }
@@ -1516,6 +1534,9 @@ private class WebKitLibraryPigeonCodecWriter: FlutterStandardWriter {
       super.writeValue(value.rawValue)
     } else if let value = value as? DartSecTrustResultType {
       super.writeByte(143)
+      super.writeValue(value.rawValue)
+    } else if let value = value as? FWFNSScrollWheelPhase {
+      super.writeByte(144)
       super.writeValue(value.rawValue)
     } else {
       super.writeValue(value)
@@ -5091,6 +5112,18 @@ protocol PigeonApiDelegateNSViewWKWebView {
   func scrollView(pigeonApi: PigeonApiNSViewWKWebView, pigeonInstance: WKWebView) throws -> NSScrollView
   #endif
   #if !os(iOS)
+  /// Links the Dart-created scroll view [scrollViewIdentifier] to the native
+  /// scroll view when present.
+  func linkScrollViewByIdentifier(pigeonApi: PigeonApiNSViewWKWebView, pigeonInstance: WKWebView, scrollViewIdentifier: Int64, completion: @escaping (Result<Void, Error>) -> Void)
+  #endif
+  #if !os(iOS)
+  /// Installs a scroll-wheel delegate that receives native wheel events.
+  ///
+  /// macOS `WKWebView` has no `NSScrollView`, so the delegate's `NSEvent`
+  /// monitor is scoped to the web view itself.
+  func setScrollWheelDelegate(pigeonApi: PigeonApiNSViewWKWebView, pigeonInstance: WKWebView, delegate: FWFNSScrollViewDelegate?, consume: Bool) throws
+  #endif
+  #if !os(iOS)
   /// The object you use to integrate custom user interface elements, such as
   /// contextual menus or panels, into web view interactions.
   func setUIDelegate(pigeonApi: PigeonApiNSViewWKWebView, pigeonInstance: WKWebView, delegate: WKUIDelegate) throws
@@ -5261,6 +5294,45 @@ withIdentifier: pigeonIdentifierArg)
       }
     } else {
       scrollViewChannel.setMessageHandler(nil)
+    }
+    #endif
+    #if !os(iOS)
+    let linkScrollViewByIdentifierChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webview_flutter_wkwebview.NSViewWKWebView.linkScrollViewByIdentifier", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      linkScrollViewByIdentifierChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let pigeonInstanceArg = args[0] as! WKWebView
+        let scrollViewIdentifierArg = args[1] as! Int64
+        api.pigeonDelegate.linkScrollViewByIdentifier(pigeonApi: api, pigeonInstance: pigeonInstanceArg, scrollViewIdentifier: scrollViewIdentifierArg) { result in
+          switch result {
+          case .success:
+            reply(wrapResult(nil))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      linkScrollViewByIdentifierChannel.setMessageHandler(nil)
+    }
+    #endif
+    #if !os(iOS)
+    let setScrollWheelDelegateChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webview_flutter_wkwebview.NSViewWKWebView.setScrollWheelDelegate", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setScrollWheelDelegateChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let pigeonInstanceArg = args[0] as! WKWebView
+        let delegateArg: FWFNSScrollViewDelegate? = nilOrValue(args[1])
+        let consumeArg = args[2] as! Bool
+        do {
+          try api.pigeonDelegate.setScrollWheelDelegate(pigeonApi: api, pigeonInstance: pigeonInstanceArg, delegate: delegateArg, consume: consumeArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setScrollWheelDelegateChannel.setMessageHandler(nil)
     }
     #endif
     #if !os(iOS)
@@ -6199,6 +6271,12 @@ protocol PigeonApiProtocolFWFNSScrollViewDelegate {
   /// scroll view.
   func scrollViewDidScroll(pigeonInstance pigeonInstanceArg: FWFNSScrollViewDelegate, scrollView scrollViewArg: NSScrollView, x xArg: Double, y yArg: Double, completion: @escaping (Result<Void, PigeonError>) -> Void)  #endif
 
+  #if !os(iOS)
+  /// Tells the delegate when a native scroll-wheel event occurs.
+  ///
+  /// [scrollView] is null when the monitor is attached directly to a web view.
+  func scrollWheel(pigeonInstance pigeonInstanceArg: FWFNSScrollViewDelegate, scrollView scrollViewArg: NSScrollView?, eventType eventTypeArg: FWFNSScrollWheelPhase, timestamp timestampArg: Double, globalX globalXArg: Double, globalY globalYArg: Double, localX localXArg: Double, localY localYArg: Double, deltaX deltaXArg: Double, deltaY deltaYArg: Double, isMomentum isMomentumArg: Bool, hasPreciseDeltas hasPreciseDeltasArg: Bool, completion: @escaping (Result<Void, PigeonError>) -> Void)  #endif
+
 }
 
 final class PigeonApiFWFNSScrollViewDelegate: PigeonApiProtocolFWFNSScrollViewDelegate  {
@@ -6298,6 +6376,47 @@ withIdentifier: pigeonIdentifierArg)
     let channelName: String = "dev.flutter.pigeon.webview_flutter_wkwebview.FWFNSScrollViewDelegate.scrollViewDidScroll"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
     channel.sendMessage([pigeonInstanceArg, scrollViewArg, xArg, yArg] as [Any?]) { response in
+      guard let listResponse = response as? [Any?] else {
+        completion(.failure(createConnectionError(withChannelName: channelName)))
+        return
+      }
+      if listResponse.count > 1 {
+        let code: String = listResponse[0] as! String
+        let message: String? = nilOrValue(listResponse[1])
+        let details: String? = nilOrValue(listResponse[2])
+        completion(.failure(PigeonError(code: code, message: message, details: details)))
+      } else {
+        completion(.success(()))
+      }
+    }
+  }
+  #endif
+
+  #if !os(iOS)
+  /// Tells the delegate when a native scroll-wheel event occurs.
+  ///
+  /// [scrollView] is null when the monitor is attached directly to a web view.
+  func scrollWheel(pigeonInstance pigeonInstanceArg: FWFNSScrollViewDelegate, scrollView scrollViewArg: NSScrollView?, eventType eventTypeArg: FWFNSScrollWheelPhase, timestamp timestampArg: Double, globalX globalXArg: Double, globalY globalYArg: Double, localX localXArg: Double, localY localYArg: Double, deltaX deltaXArg: Double, deltaY deltaYArg: Double, isMomentum isMomentumArg: Bool, hasPreciseDeltas hasPreciseDeltasArg: Bool, completion: @escaping (Result<Void, PigeonError>) -> Void)   {
+    if pigeonRegistrar.ignoreCallsToDart {
+      completion(
+        .failure(
+          PigeonError(
+            code: "ignore-calls-error",
+            message: "Calls to Dart are being ignored.", details: "")))
+      return
+    }     else if !pigeonRegistrar.instanceManager.containsInstance(pigeonInstanceArg as AnyObject) {
+      completion(
+        .failure(
+          PigeonError(
+            code: "missing-instance-error",
+            message: "Callback to `FWFNSScrollViewDelegate.scrollWheel` failed because native instance was not in the instance manager.", details: "")))
+      return
+    }
+    let binaryMessenger = pigeonRegistrar.binaryMessenger
+    let codec = pigeonRegistrar.codec
+    let channelName: String = "dev.flutter.pigeon.webview_flutter_wkwebview.FWFNSScrollViewDelegate.scrollWheel"
+    let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
+    channel.sendMessage([pigeonInstanceArg, scrollViewArg, eventTypeArg, timestampArg, globalXArg, globalYArg, localXArg, localYArg, deltaXArg, deltaYArg, isMomentumArg, hasPreciseDeltasArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return

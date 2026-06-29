@@ -5,6 +5,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'platform_scroll_view.dart';
+import 'ns_view_wk_webview_scroll.dart';
 import 'web_kit.g.dart';
 
 /// Platform agnostic native WebView.
@@ -299,6 +300,15 @@ class PlatformWebView {
 
   PlatformScrollView? _platformScrollViewCache;
 
+  /// Clears the cached macOS scroll view so it can be re-linked.
+  void clearMacScrollViewCache() {
+    _platformScrollViewCache = null;
+    final WKWebView webView = nativeWebView;
+    if (webView is NSViewWKWebView) {
+      webView.resetNativeScrollViewLink();
+    }
+  }
+
   /// Ensures the native scroll view is linked before use (required on macOS).
   Future<PlatformScrollView> ensureScrollView() async {
     final PlatformScrollView? scrollView = await tryEnsureScrollView();
@@ -310,6 +320,20 @@ class PlatformWebView {
     return scrollView;
   }
 
+  /// Installs a macOS scroll-wheel [delegate] scoped to the web view itself.
+  ///
+  /// macOS `WKWebView` exposes no `NSScrollView`, so the native `NSEvent`
+  /// monitor is attached directly to the web view.
+  Future<void> setMacScrollWheelDelegate(
+    FWFNSScrollViewDelegate? delegate, {
+    required bool consume,
+  }) async {
+    final WKWebView webView = nativeWebView;
+    if (webView is NSViewWKWebView) {
+      await webView.setScrollWheelDelegate(delegate, consume);
+    }
+  }
+
   /// Links the native scroll view when present; otherwise returns null (macOS).
   Future<PlatformScrollView?> tryEnsureScrollView() async {
     if (_platformScrollViewCache != null) {
@@ -317,10 +341,17 @@ class PlatformWebView {
     }
     final WKWebView webView = nativeWebView;
     if (webView is NSViewWKWebView) {
-      await webView.ensureNativeScrollViewLinked();
-      if (!webView.isNativeScrollViewLinked) {
+      final bool linked = await webView.ensureNativeScrollViewLinked();
+      if (!linked) {
         return null;
       }
+      final NSScrollView? linkedScrollView = webView.linkedNativeScrollView;
+      if (linkedScrollView == null) {
+        return null;
+      }
+      _platformScrollViewCache =
+          PlatformScrollView.fromLinkedMacScrollView(linkedScrollView);
+      return _platformScrollViewCache;
     }
     _platformScrollViewCache = PlatformScrollView.from(webView);
     return _platformScrollViewCache;
