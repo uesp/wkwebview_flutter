@@ -48,6 +48,10 @@
     var mouseWheelIdleTimer: Timer?
     var mouseWheelActive = false
     var lastScrollWheelEvent: NSEvent?
+    /// Whether a precise (trackpad) scroll gesture that began inside the target
+    /// view is still in progress. Latched so the rest of the gesture keeps
+    /// delivering even if the target view moves out from under the pointer.
+    var preciseGestureActive = false
 
     private static let MOUSE_WHEEL_IDLE_END_INTERVAL: TimeInterval = 0.12
 
@@ -89,16 +93,45 @@
         guard let self, let targetView = self.wheelView else { return event }
         guard let window = targetView.window, event.window == window else { return event }
         let locationInView = targetView.convert(event.locationInWindow, from: nil)
-        guard targetView.bounds.contains(locationInView) else { return event }
+        let inBounds = targetView.bounds.contains(locationInView)
+        guard self.shouldHandleScrollWheel(event: event, inBounds: inBounds) else { return event }
         self.handleScrollWheel(event: event, view: targetView)
         return self.consumeScrollWheelEvents ? nil : event
       }
+    }
+
+    /// Decides whether a scroll-wheel event should be forwarded.
+    ///
+    /// Discrete mouse-wheel events (no phase) are gated on the pointer being
+    /// inside the target view. Precise trackpad gestures are latched on their
+    /// start: once a gesture begins in-bounds it keeps delivering until it ends,
+    /// even if the target view moves out from under the pointer mid-gesture.
+    private func shouldHandleScrollWheel(event: NSEvent, inBounds: Bool) -> Bool {
+      let phase = event.phase
+      let momentum = event.momentumPhase
+
+      // Discrete mouse wheel carries no phase information; gate per-event.
+      if phase.isEmpty && momentum.isEmpty {
+        return inBounds
+      }
+
+      if phase.contains(.began) || phase.contains(.mayBegin) {
+        preciseGestureActive = inBounds
+      } else if phase.contains(.cancelled)
+        || momentum.contains(.ended) || momentum.contains(.cancelled)
+      {
+        let wasActive = preciseGestureActive
+        preciseGestureActive = false
+        return wasActive
+      }
+      return preciseGestureActive
     }
 
     func detachScrollWheel() {
       mouseWheelIdleTimer?.invalidate()
       mouseWheelIdleTimer = nil
       mouseWheelActive = false
+      preciseGestureActive = false
       lastScrollWheelEvent = nil
       if let monitor = scrollWheelMonitor {
         NSEvent.removeMonitor(monitor)
