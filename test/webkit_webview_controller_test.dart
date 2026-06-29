@@ -2111,16 +2111,16 @@ window.addEventListener("error", function(e) {
       return controller;
     }
 
-    test('setOnMacScrollWheel throws on non-macOS', () async {
+    test('setOnScrollWheel throws on non-macOS', () async {
       final WebKitWebViewController controller = createControllerWithMocks();
 
       expect(
-        () => controller.setOnMacScrollWheel((_) {}),
+        () => controller.setOnScrollWheel((_) {}),
         throwsA(isA<UnimplementedError>()),
       );
     });
 
-    test('setOnMacScrollWheel attaches, forwards, and detaches', () async {
+    test('setOnScrollWheel attaches, forwards, and detaches', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
 
       late final MockNSViewWKWebView mockWebView;
@@ -2130,8 +2130,8 @@ window.addEventListener("error", function(e) {
         },
       );
 
-      final eventCompleter = Completer<MacScrollWheelEvent>();
-      await controller.setOnMacScrollWheel(eventCompleter.complete);
+      final eventCompleter = Completer<ScrollWheelEvent>();
+      await controller.setOnScrollWheel(eventCompleter.complete);
 
       verify(
         mockWebView.setScrollWheelDelegate(any, false),
@@ -2169,8 +2169,8 @@ window.addEventListener("error", function(e) {
         true,
       );
 
-      final MacScrollWheelEvent event = await eventCompleter.future;
-      expect(event.eventType, MacScrollWheelPhase.start);
+      final ScrollWheelEvent event = await eventCompleter.future;
+      expect(event.eventType, ScrollWheelPhase.start);
       expect(event.timestamp, 1.5);
       expect(event.globalPosition, const Offset(10, 20));
       expect(event.localPosition, const Offset(3, 4));
@@ -2178,7 +2178,7 @@ window.addEventListener("error", function(e) {
       expect(event.isMomentum, false);
       expect(event.hasPreciseDeltas, true);
 
-      await controller.setOnMacScrollWheel(null);
+      await controller.setOnScrollWheel(null);
 
       verify(
         mockWebView.setScrollWheelDelegate(null, false),
@@ -2187,7 +2187,7 @@ window.addEventListener("error", function(e) {
       debugDefaultTargetPlatformOverride = null;
     });
 
-    test('setOnMacScrollWheel native monitor survives navigation', () async {
+    test('setOnScrollWheel native monitor survives navigation', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
 
       late final void Function(
@@ -2207,7 +2207,7 @@ window.addEventListener("error", function(e) {
         },
       );
 
-      await controller.setOnMacScrollWheel((_) {});
+      await controller.setOnScrollWheel((_) {});
 
       webViewObserveValue(
         mockWebView,

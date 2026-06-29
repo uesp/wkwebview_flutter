@@ -71,8 +71,8 @@ base class WebKitLoadFileParams extends LoadFileParams {
   final String readAccessPath;
 }
 
-/// Lifecycle phase for a macOS scroll-wheel gesture.
-enum MacScrollWheelPhase {
+/// Lifecycle phase for a scroll-wheel gesture.
+enum ScrollWheelPhase {
   /// The scroll-wheel gesture began.
   start,
 
@@ -88,20 +88,21 @@ enum MacScrollWheelPhase {
 
 /// Native macOS scroll-wheel event forwarded from AppKit.
 @immutable
-class MacScrollWheelEvent {
-  /// Constructs a [MacScrollWheelEvent].
-  const MacScrollWheelEvent({
+class ScrollWheelEvent {
+  /// Constructs a [ScrollWheelEvent].
+  const ScrollWheelEvent({
     required this.eventType,
     required this.timestamp,
     required this.globalPosition,
     required this.localPosition,
     required this.delta,
+    required this.velocity,
     required this.isMomentum,
     required this.hasPreciseDeltas,
   });
 
   /// Lifecycle phase of the scroll-wheel gesture.
-  final MacScrollWheelPhase eventType;
+  final ScrollWheelPhase eventType;
 
   /// Native [NSEvent.timestamp].
   final double timestamp;
@@ -114,6 +115,9 @@ class MacScrollWheelEvent {
 
   /// Scroll delta.
   final Offset delta;
+
+  /// Gesture velocity (px/s), computed on [ScrollWheelPhase.end].
+  final Offset velocity;
 
   /// Whether the event is part of a momentum scroll.
   final bool isMomentum;
@@ -547,7 +551,11 @@ class WebKitWebViewController extends PlatformWebViewController {
   void Function(ScrollPositionChange scrollPositionChange)?
   _onScrollPositionChangeCallback;
 
-  void Function(MacScrollWheelEvent event)? _onMacScrollWheelCallback;
+  void Function(ScrollWheelEvent event)? _onMacScrollWheelCallback;
+
+  /// Recent scroll-wheel deltas with timestamps (ms) for velocity estimation.
+  final List<({Offset delta, double timeMs})> _scrollWheelSamples =
+      <({Offset delta, double timeMs})>[];
 
   WebKitWebViewControllerCreationParams get _webKitParams =>
       params as WebKitWebViewControllerCreationParams;
@@ -1126,30 +1134,88 @@ class WebKitWebViewController extends PlatformWebViewController {
   ///
   /// The `NSEvent` monitor is scoped to the web view itself, since macOS
   /// `WKWebView` exposes no `NSScrollView`.
-  Future<void> setOnMacScrollWheel(
-    void Function(MacScrollWheelEvent event)? callback, {
+  Future<void> setOnScrollWheel(
+    void Function(ScrollWheelEvent event)? callback, {
     bool consume = false,
   }) {
     _onMacScrollWheelCallback = callback;
     if (defaultTargetPlatform != TargetPlatform.macOS) {
       throw UnimplementedError(
-        'setOnMacScrollWheel is only implemented on macOS',
+        'setOnScrollWheel is only implemented on macOS',
       );
     }
     return _setMacOnScrollWheel(callback, consume: consume);
   }
 
-  MacScrollWheelPhase _toMacScrollWheelPhase(FWFNSScrollWheelPhase phase) {
+  ScrollWheelPhase _toScrollWheelPhase(FWFNSScrollWheelPhase phase) {
     return switch (phase) {
-      FWFNSScrollWheelPhase.start => MacScrollWheelPhase.start,
-      FWFNSScrollWheelPhase.update => MacScrollWheelPhase.update,
-      FWFNSScrollWheelPhase.end => MacScrollWheelPhase.end,
-      FWFNSScrollWheelPhase.cancel => MacScrollWheelPhase.cancel,
+      FWFNSScrollWheelPhase.start => ScrollWheelPhase.start,
+      FWFNSScrollWheelPhase.update => ScrollWheelPhase.update,
+      FWFNSScrollWheelPhase.end => ScrollWheelPhase.end,
+      FWFNSScrollWheelPhase.cancel => ScrollWheelPhase.cancel,
     };
   }
 
+  /// Window (ms) of recent deltas used to estimate scroll-wheel velocity.
+  static const double _scrollWheelVelocityWindowMs = 100;
+
+  /// Records the [delta] sampled at [timeMs] for [phase] and returns the
+  /// gesture velocity (px/s). Velocity is only computed on
+  /// [ScrollWheelPhase.end]; other phases return [Offset.zero].
+  Offset _trackScrollWheelVelocity(
+    ScrollWheelPhase phase,
+    Offset delta,
+    double timeMs,
+  ) {
+    switch (phase) {
+      case ScrollWheelPhase.start:
+        _scrollWheelSamples.clear();
+        _recordScrollWheelSample(delta, timeMs);
+      case ScrollWheelPhase.update:
+        _recordScrollWheelSample(delta, timeMs);
+      case ScrollWheelPhase.end:
+        if (delta != Offset.zero) {
+          _recordScrollWheelSample(delta, timeMs);
+        }
+        final Offset velocity = _computeScrollWheelVelocity();
+        _scrollWheelSamples.clear();
+        return velocity;
+      case ScrollWheelPhase.cancel:
+        _scrollWheelSamples.clear();
+    }
+    return Offset.zero;
+  }
+
+  /// Records a scroll [delta] sampled at [timeMs], trimming samples older than
+  /// [_scrollWheelVelocityWindowMs].
+  void _recordScrollWheelSample(Offset delta, double timeMs) {
+    _scrollWheelSamples.add((delta: delta, timeMs: timeMs));
+    while (_scrollWheelSamples.length > 1 &&
+        timeMs - _scrollWheelSamples.first.timeMs >
+            _scrollWheelVelocityWindowMs) {
+      _scrollWheelSamples.removeAt(0);
+    }
+  }
+
+  /// Estimates scroll-wheel velocity (px/s) from the recent sample window.
+  Offset _computeScrollWheelVelocity() {
+    if (_scrollWheelSamples.length < 2) {
+      return Offset.zero;
+    }
+    final double spanMs =
+        _scrollWheelSamples.last.timeMs - _scrollWheelSamples.first.timeMs;
+    if (spanMs <= 0) {
+      return Offset.zero;
+    }
+    Offset displacement = Offset.zero;
+    for (int i = 1; i < _scrollWheelSamples.length; i++) {
+      displacement += _scrollWheelSamples[i].delta;
+    }
+    return displacement * (1000 / spanMs);
+  }
+
   Future<void> _setMacOnScrollWheel(
-    void Function(MacScrollWheelEvent event)? callback, {
+    void Function(ScrollWheelEvent event)? callback, {
     required bool consume,
   }) async {
     if (callback == null) {
@@ -1179,13 +1245,25 @@ class WebKitWebViewController extends PlatformWebViewController {
         if (controller == null) {
           return;
         }
+        // Momentum (inertial) scrolling is not user-driven: drop it.
+        if (isMomentum) {
+          return;
+        }
+        final ScrollWheelPhase phase = controller._toScrollWheelPhase(eventType);
+        final Offset delta = Offset(deltaX, deltaY);
+        final Offset velocity = controller._trackScrollWheelVelocity(
+          phase,
+          delta,
+          timestamp * 1000,
+        );
         controller._onMacScrollWheelCallback?.call(
-          MacScrollWheelEvent(
-            eventType: controller._toMacScrollWheelPhase(eventType),
+          ScrollWheelEvent(
+            eventType: phase,
             timestamp: timestamp,
             globalPosition: Offset(globalX, globalY),
             localPosition: Offset(localX, localY),
-            delta: Offset(deltaX, deltaY),
+            delta: delta,
+            velocity: velocity,
             isMomentum: isMomentum,
             hasPreciseDeltas: hasPreciseDeltas,
           ),
